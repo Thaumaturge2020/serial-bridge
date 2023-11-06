@@ -77,7 +77,7 @@ namespace rmcv_bridge {
                                 str, 10, binded));
 
                 ss.clear();
-                ss << "/pubscriber/message";
+                ss << "/publisher/message";
                 ss << i;
                 ss >> str;
                 serial_read_list.push_back(this->create_publisher<serial_msg::msg::Uint8Array>(str, 10));
@@ -100,9 +100,13 @@ namespace rmcv_bridge {
                 RCLCPP_INFO(this->get_logger(),"%02x",*p_str);
                 if (type == -1 && *p_str == 0x7d){
                     ++p_str;
+                    if(*p_str == 0x7f)
+                    p_str++,type = *p_str + 0x7d;
+                    else
                     type = *p_str;
                     my_setup[type] = 1;
                     my_write_ptr[type] = read_msg_array[type];
+                    *(my_write_ptr[type]++) = type;
                 }
                 else if (~type){
                     if (*p_str == 0x7e) {
@@ -115,6 +119,11 @@ namespace rmcv_bridge {
                         my_setup[type] = 0;
                         serial_msg::msg::Uint8Array msg;
                         size_t now_len = my_write_ptr[type] - read_msg_array[type];
+
+                        uint16_t crccode_16 = crc_16(read_msg_array[type], now_len - 2);
+
+                        RCLCPP_INFO(this->get_logger(),"%d %d %d",read_msg_array[type][now_len-2]*256 + read_msg_array[type][now_len-1], read_msg_array[type][now_len-1]*256 + read_msg_array[type][now_len-2],crccode_16);
+                        
                         my_write_ptr[type] = nullptr;
                         msg.data.resize(now_len);
                         RCLCPP_INFO(this->get_logger(),"%d %d",now_len,type);
@@ -149,7 +158,12 @@ namespace rmcv_bridge {
             const uint8_t *head_ptr = write_msg_array,
                     *tail_ptr = write_msg_array + FULL_LEN;
 
-            ADD(0x7d);ADD((uint8_t) type);
+            ADD(0x7d);
+            if (type == 0x7f || type == 0x7e || type == 0x7d) {
+                ADD(0x7f);ADD(0x7f - type);
+            } else {
+                ADD(type);
+            }
             for (int i = 0; i < len; ++i) {
                 if (*pstr == 0x7f || *pstr == 0x7e || *pstr == 0x7d) {
                     ADD(0x7f);ADD(0x7f - *pstr);
@@ -158,9 +172,25 @@ namespace rmcv_bridge {
                 }
                 ++pstr;
             }
-            ADD((uint8_t) (crccode_16 >> 8));ADD((uint8_t)(crccode_16 & 255));ADD(0x7e);
+            uint8_t crc1 = (crccode_16 >> 8);
+            uint8_t crc2 = (crccode_16 & 255);
+            
+            if (crc1 == 0x7f || crc1 == 0x7e || crc1 == 0x7d) {
+                ADD(0x7f);ADD(0x7f - crc1);
+            } else {
+                ADD(crc1);
+            }
+
+            if (crc2 == 0x7f || crc2 == 0x7e || crc2 == 0x7d) {
+                ADD(0x7f);ADD(0x7f - crc2);
+            } else {
+                ADD(crc2);
+            }
+            ADD(0x7e);
             write(fd,head_ptr,my_buffer_ptr - head_ptr);
+            RCLCPP_INFO(this->get_logger(),"succeed.");
             delete(now_msg);
+            return;
         }
 #undef ADD
 
