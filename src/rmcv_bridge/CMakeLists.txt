@@ -42,7 +42,7 @@ target_include_directories(rmcv_bridge PRIVATE
 ament_target_dependencies(rmcv_bridge rclcpp rclcpp_action rclcpp_components serial_msg std_msgs)
 ament_package()
 
-rclcpp_components_register_node(rmcv_bridge PLUGIN "rmcvBridge::minimalRmcvBridge" EXECUTABLE bridge)
+rclcpp_components_register_node(rmcv_bridge PLUGIN "rmcv_bridge::MinimalSerialBridge" EXECUTABLE bridge)
 
 install(TARGETS
   rmcv_bridge

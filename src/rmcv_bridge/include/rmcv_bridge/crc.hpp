@@ -5,6 +5,15 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <termios.h>
+#include <iostream>
+#include <sys/types.h>  /*数据类型，比如一些XXX_t的那种*/
+#include <sys/stat.h>   /*定义了一些返回值的结构，没看明白*/
+#include <errno.h>      /*错误号定义*/
+
+#define FALSE  -1
+
+#define TRUE   0
+
 
 namespace rmcv_bridge{
     #define         CRC_POLY_16             0xA001

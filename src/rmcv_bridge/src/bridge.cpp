@@ -11,7 +11,7 @@ namespace rmcv_bridge {
     public :
         std::vector<rclcpp::Publisher<serial_msg::msg::Uint8Array>::SharedPtr> serial_read_list;
         std::vector<rclcpp::Subscription<serial_msg::msg::Uint8Array>::SharedPtr> serial_write_list;
-        static constexpr int msg_num = 20;
+        static constexpr int msg_num = 256;
         int fd;
         static constexpr int FULL_LEN = 2048;
         uint8_t read_msg_array[msg_num][FULL_LEN];
@@ -19,9 +19,21 @@ namespace rmcv_bridge {
         uint8_t my_temp_buffer[FULL_LEN];
         uint8_t *my_write_ptr[msg_num];
         uint8_t *my_read_ptr[msg_num];
+        int my_setup[msg_num];
 
         int openUart(const char *Uart_str) {
-            int fd = open(Uart_str, O_RDWR | O_NOCTTY);
+            RCLCPP_INFO(this->get_logger(),"my_str is %s",Uart_str);
+
+            int fd = open(Uart_str, O_RDWR);
+
+            RCLCPP_INFO(this->get_logger(),"my_fd is %d",fd);
+            
+            if (fd < 0) {
+                RCLCPP_ERROR(this->get_logger(), "can't open %s", Uart_str);
+                rclcpp::shutdown();
+                return -1;
+            }
+            
             termios oldtio = {0};
             termios newtio = {0};
             tcgetattr(fd, &oldtio);
@@ -45,10 +57,17 @@ namespace rmcv_bridge {
                   timer_(this->create_wall_timer(std::chrono::milliseconds(1), [this] { behaviour_publish(); })) {
             std::stringstream ss;
             std::string str;
+            RCLCPP_INFO(this->get_logger(),"test_node_launched");
+
+            int test_fd = open("/dev/ttyACM0",O_RDWR);
+            
+            std::cout << test_fd << std::endl;
+
+
             using namespace std::placeholders;
             for (int i = 0; i < msg_num; ++i) {
                 ss.clear();
-                ss << "/sublisher_message/";
+                ss << "/subscription/message";
                 ss << i;
                 ss >> str;
                 std::function<void(serial_msg::msg::Uint8Array::ConstSharedPtr)> binded =
@@ -58,12 +77,13 @@ namespace rmcv_bridge {
                                 str, 10, binded));
 
                 ss.clear();
-                ss << "/pubscriber_message/";
+                ss << "/pubscriber/message";
                 ss << i;
                 ss >> str;
                 serial_read_list.push_back(this->create_publisher<serial_msg::msg::Uint8Array>(str, 10));
             }
-            fd = openUart("/dev/ttyS0");
+            fd = openUart("/dev/ttyACM0");
+            memset(my_setup,0,sizeof(my_setup));
         }
 
         void behaviour_publish() {
@@ -71,30 +91,44 @@ namespace rmcv_bridge {
             uint8_t *p_str = my_temp_buffer;
             if (ret < 0) {
                 RCLCPP_ERROR(this->get_logger(), "buffer incorrect!!!");
-                rclcpp::shutdown();
                 return;
             }
-            static int setup = 0, type = 0;
+            RCLCPP_INFO(this->get_logger(),"%d",ret);
+            // RCLCPP_INFO(this->get_logger(),"%s",my_temp_buffer);
+            static int type = -1;
             for (int i = 0; i < ret; ++i) {
-                if (setup == 1) {
+                RCLCPP_INFO(this->get_logger(),"%02x",*p_str);
+                if (type == -1 && *p_str == 0x7d){
+                    ++p_str;
                     type = *p_str;
-                    setup = 0;
+                    my_setup[type] = 1;
                     my_write_ptr[type] = read_msg_array[type];
                 }
-                if (*p_str == 0x7e) {
-                    setup = 1;
-                } else if (*p_str == 0x7f) {
-                    serial_msg::msg::Uint8Array msg;
-                    size_t now_len = my_write_ptr[type] - read_msg_array[type];
-                    msg.data.resize(now_len);
-                    memcpy(msg.data.data(), read_msg_array[type], now_len);
-                    serial_read_list[type]->publish(msg);
-
-                } else if (*p_str == 0x7d) {
-                    ++p_str;
-                    *(my_write_ptr[type]++) = (*p_str + 0x7d);
-                } else {
-                    *(my_write_ptr[type]++) = *p_str;
+                else if (~type){
+                    if (*p_str == 0x7e) {
+                        RCLCPP_INFO(this->get_logger(),"%s","?????????");
+                        if(my_setup[type] != 1){
+                            RCLCPP_ERROR(this->get_logger(), "setup incorrect!!!!!!!!!");
+                            rclcpp::shutdown();
+                            return;
+                        }
+                        my_setup[type] = 0;
+                        serial_msg::msg::Uint8Array msg;
+                        size_t now_len = my_write_ptr[type] - read_msg_array[type];
+                        my_write_ptr[type] = nullptr;
+                        msg.data.resize(now_len);
+                        RCLCPP_INFO(this->get_logger(),"%d %d",now_len,type);
+                        memcpy(msg.data.data(),read_msg_array[type], now_len);
+                        serial_read_list[type]->publish(msg);
+                        type = -1;
+                    } else if (*p_str == 0x7f) {
+                        ++p_str;
+                        *(my_write_ptr[type]++) = (*p_str + 0x7d);
+                        RCLCPP_INFO(this->get_logger(),"%d",my_write_ptr[type] - read_msg_array[type]);
+                    } else {
+                        *(my_write_ptr[type]++) = *p_str;
+                        RCLCPP_INFO(this->get_logger(),"%d",my_write_ptr[type] - read_msg_array[type]);
+                    }
                 }
                 ++p_str;
             }
@@ -115,16 +149,16 @@ namespace rmcv_bridge {
             const uint8_t *head_ptr = write_msg_array,
                     *tail_ptr = write_msg_array + FULL_LEN;
 
-            ADD(0x7e);ADD((uint8_t) type);
+            ADD(0x7d);ADD((uint8_t) type);
             for (int i = 0; i < len; ++i) {
                 if (*pstr == 0x7f || *pstr == 0x7e || *pstr == 0x7d) {
-                    ADD(0x7d);ADD(*pstr - 0x7d);
+                    ADD(0x7f);ADD(0x7f - *pstr);
                 } else {
                     ADD(*pstr);
                 }
                 ++pstr;
             }
-            ADD((uint8_t) (crccode_16 >> 8));ADD((uint8_t)(crccode_16 & 255));ADD(0x7f);
+            ADD((uint8_t) (crccode_16 >> 8));ADD((uint8_t)(crccode_16 & 255));ADD(0x7e);
             write(fd,head_ptr,my_buffer_ptr - head_ptr);
             delete(now_msg);
         }
