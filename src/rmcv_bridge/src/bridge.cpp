@@ -30,7 +30,7 @@ namespace rmcv_bridge {
             
             if (fd < 0) {
                 RCLCPP_ERROR(this->get_logger(), "can't open %s", Uart_str);
-                rclcpp::shutdown();
+                //rclcpp::shutdown();
                 return -1;
             }
             
@@ -90,7 +90,7 @@ namespace rmcv_bridge {
             long int ret = read(fd, my_temp_buffer, FULL_LEN);
             uint8_t *p_str = my_temp_buffer;
             if (ret < 0) {
-                RCLCPP_ERROR(this->get_logger(), "buffer incorrect!!!");
+                // RCLCPP_ERROR(this->get_logger(), "buffer incorrect!!!");
                 return;
             }
             RCLCPP_INFO(this->get_logger(),"%d",ret);
@@ -149,6 +149,7 @@ namespace rmcv_bridge {
             }
 
         void behaviour_subscribe(serial_msg::msg::Uint8Array::ConstSharedPtr msg, int type) {
+            RCLCPP_INFO(this->get_logger(),"this can be dealed by me...");
             int len = (int)sizeof(uint8_t) * msg->data.size();
             uint8_t* now_msg = new uint8_t[len+len];
             memcpy(now_msg, msg->data.data(), len);
@@ -188,7 +189,7 @@ namespace rmcv_bridge {
             }
             ADD(0x7e);
             write(fd,head_ptr,my_buffer_ptr - head_ptr);
-            RCLCPP_INFO(this->get_logger(),"succeed.");
+            RCLCPP_INFO(this->get_logger(),"succeed.fd is %d",fd);
             delete(now_msg);
             return;
         }
