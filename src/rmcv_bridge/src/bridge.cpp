@@ -6,6 +6,23 @@
 
 using namespace std::chrono_literals;
 
+/*
+    规则：
+    首先有id和text
+    [id,text]
+    算crc
+    [id,text,crc]
+    转义规则：
+    (char)0x7d -> (char array)0x7f + (char)0x00
+    (char)0x7e -> (char array)0x7f + (char)0x01
+    (char)0x7f -> (char array)0x7f + (char)0x02
+    转义字符串：
+    id转义，text转义，crc转义
+    [id',text',crc']
+    补头尾：
+    [0x7d,id',text',crc',0x7e]
+*/
+
 namespace rmcv_bridge {
     class MinimalSerialBridge : public rclcpp::Node {
     public :
@@ -20,6 +37,8 @@ namespace rmcv_bridge {
         uint8_t *my_write_ptr[msg_num];
         uint8_t *my_read_ptr[msg_num];
         int my_setup[msg_num];
+        
+        std::shared_ptr<rclcpp::Node> node1;
 
         int openUart(const char *Uart_str) {
             RCLCPP_INFO(this->get_logger(),"my_str is %s",Uart_str);
@@ -55,6 +74,11 @@ namespace rmcv_bridge {
         MinimalSerialBridge(const rclcpp::NodeOptions &options = rclcpp::NodeOptions())
                 : Node("minimal_rmcv_bridge"),
                   timer_(this->create_wall_timer(std::chrono::milliseconds(1), [this] { behaviour_publish(); })) {
+            
+            node1 = std::make_shared<rclcpp::Node>("my_node_1");
+            
+            rclcpp::spin(node1);
+
             std::stringstream ss;
             std::string str;
             RCLCPP_INFO(this->get_logger(),"test_node_launched");
@@ -93,51 +117,77 @@ namespace rmcv_bridge {
                 // RCLCPP_ERROR(this->get_logger(), "buffer incorrect!!!");
                 return;
             }
-            RCLCPP_INFO(this->get_logger(),"%d",ret);
+            RCLCPP_INFO(this->get_logger(),"%ld",ret);
             // RCLCPP_INFO(this->get_logger(),"%s",my_temp_buffer);
             static int type = -1;
-            for (int i = 0; i < ret; ++i) {
+
+            static int state = 0;
+
+            /*
+                header : 0x7d type(instruction translation)
+                text : text(instruction translation)
+                tail : 0x7e
+            */
+
+            /*
+                state 0:end
+                state 1:start(type)
+                state 2:start(text)
+                state 3:translate the character (type)
+                state 4:translate the character (text)
+            */
+
+            for (int i = 0; i < ret; ++i){
                 RCLCPP_INFO(this->get_logger(),"%02x",*p_str);
-                if (type == -1 && *p_str == 0x7d){
-                    ++p_str;
-                    if(*p_str == 0x7f)
-                    p_str++,type = *p_str + 0x7d;
-                    else
-                    type = *p_str;
-                    my_setup[type] = 1;
-                    my_write_ptr[type] = read_msg_array[type];
-                    *(my_write_ptr[type]++) = type;
-                }
-                else if (~type){
-                    if (*p_str == 0x7e) {
-                        RCLCPP_INFO(this->get_logger(),"%s","?????????");
-                        if(my_setup[type] != 1){
-                            RCLCPP_ERROR(this->get_logger(), "setup incorrect!!!!!!!!!");
-                            rclcpp::shutdown();
-                            return;
-                        }
-                        my_setup[type] = 0;
-                        serial_msg::msg::Uint8Array msg;
-                        size_t now_len = my_write_ptr[type] - read_msg_array[type];
-
+                char c = *p_str;
+                switch (c){
+                    case 0x7d:state = 1;
+                        break;
+                    case 0x7e:{
+                        state = 0;
+                        size_t now_len = my_write_ptr[type]-read_msg_array[type];
+                        if(now_len <= 2) RCLCPP_INFO(this->get_logger(),"ERROR_buffer");
                         uint16_t crccode_16 = crc_16(read_msg_array[type], now_len - 2);
-
-                        RCLCPP_INFO(this->get_logger(),"%d %d %d",read_msg_array[type][now_len-2]*256 + read_msg_array[type][now_len-1], read_msg_array[type][now_len-1]*256 + read_msg_array[type][now_len-2],crccode_16);
-                        
                         my_write_ptr[type] = nullptr;
-                        msg.data.resize(now_len);
-                        RCLCPP_INFO(this->get_logger(),"%d %d",now_len,type);
-                        memcpy(msg.data.data(),read_msg_array[type], now_len);
-                        serial_read_list[type]->publish(msg);
-                        type = -1;
-                    } else if (*p_str == 0x7f) {
-                        ++p_str;
-                        *(my_write_ptr[type]++) = (*p_str + 0x7d);
-                        RCLCPP_INFO(this->get_logger(),"%d",my_write_ptr[type] - read_msg_array[type]);
-                    } else {
-                        *(my_write_ptr[type]++) = *p_str;
-                        RCLCPP_INFO(this->get_logger(),"%d",my_write_ptr[type] - read_msg_array[type]);
+                        
+                        uint16_t crccode_16_rec = read_msg_array[type][now_len-1]*256 + read_msg_array[type][now_len-2];
+                        
+                        if(crccode_16==crccode_16_rec){
+                            now_len -= 2;
+                            serial_msg::msg::Uint8Array msg;
+                            msg.data.resize(now_len);
+                            RCLCPP_INFO(this->get_logger(),"%ld %d",now_len,type);
+                            memcpy(msg.data.data(),read_msg_array[type], now_len);
+                            serial_read_list[type]->publish(msg);
+                            type = -1;
+                        }
                     }
+                        break;
+                    
+                    case 0x7f:
+                        switch (state){
+                            case 1:state = 3;break;
+                            case 2:state = 4;break;
+                            default:RCLCPP_ERROR(this->get_logger(),"translation ERROR!!");state = 4;break;
+                        }
+                        break;
+                
+                    default:
+                        switch (state){
+                            case 0:RCLCPP_ERROR(this->get_logger(),"start ERROR!!");break;
+                            case 1:type = c;
+                                    my_write_ptr[type] = read_msg_array[type];
+                                    state = 2;break;
+                            case 2:*(my_write_ptr[type]++) = c;
+                                    state = 2;break;
+                            case 3:type = 0x7d+c;
+                                    my_write_ptr[type] = read_msg_array[type];
+                                    state = 2;break;
+                            case 4:*(my_write_ptr[type]++) = 0x7d+c;
+                                    state = 2;break;
+                            default:RCLCPP_ERROR(this->get_logger(),"received ERROR!!"); state = 0; break;
+                        }
+                        break;
                 }
                 ++p_str;
             }
@@ -151,43 +201,55 @@ namespace rmcv_bridge {
         void behaviour_subscribe(serial_msg::msg::Uint8Array::ConstSharedPtr msg, int type) {
             RCLCPP_INFO(this->get_logger(),"this can be dealed by me...");
             int len = (int)sizeof(uint8_t) * msg->data.size();
-            uint8_t* now_msg = new uint8_t[len+len];
-            memcpy(now_msg, msg->data.data(), len);
+            uint8_t* now_msg = new uint8_t[len+len+5];
+            now_msg[0] = type;
+            memcpy(now_msg+1, msg->data.data(), len);
+            
+            len += 1;//for modify the length;
+
             uint16_t crccode_16 = crc_16(now_msg, len);
-            uint8_t *pstr = now_msg;
+            uint8_t *p_str = now_msg;
             uint8_t *my_buffer_ptr = write_msg_array;
-            const uint8_t *head_ptr = write_msg_array,
-                    *tail_ptr = write_msg_array + FULL_LEN;
+            const uint8_t *head_ptr = write_msg_array;
+            
+            //0:normal
+            //1:translation
 
             ADD(0x7d);
-            if (type == 0x7f || type == 0x7e || type == 0x7d) {
-                ADD(0x7f);ADD(0x7f - type);
-            } else {
-                ADD(type);
-            }
-            for (int i = 0; i < len; ++i) {
-                if (*pstr == 0x7f || *pstr == 0x7e || *pstr == 0x7d) {
-                    ADD(0x7f);ADD(0x7f - *pstr);
-                } else {
-                    ADD(*pstr);
+
+            for(int i = 0;i < len ;++i){
+                char c = *p_str;
+                switch (c){
+                    case 0x7d: ADD(0x7f);ADD(0x00);break;
+                    case 0x7e: ADD(0x7f);ADD(0x01);break;
+                    case 0x7f: ADD(0x7f);ADD(0x02);break;
+                    default: ADD(c);
+                    break;
                 }
-                ++pstr;
-            }
-            uint8_t crc1 = (crccode_16 >> 8);
-            uint8_t crc2 = (crccode_16 & 255);
-            
-            if (crc1 == 0x7f || crc1 == 0x7e || crc1 == 0x7d) {
-                ADD(0x7f);ADD(0x7f - crc1);
-            } else {
-                ADD(crc1);
+                ++p_str;
             }
 
-            if (crc2 == 0x7f || crc2 == 0x7e || crc2 == 0x7d) {
-                ADD(0x7f);ADD(0x7f - crc2);
-            } else {
-                ADD(crc2);
+            uint8_t crc1 = (crccode_16 >> 8);
+            uint8_t crc2 = (crccode_16 & 255);
+
+            switch (crc1){
+                case 0x7d: ADD(0x7f);ADD(0x00);break;
+                case 0x7e: ADD(0x7f);ADD(0x01);break;
+                case 0x7f: ADD(0x7f);ADD(0x02);break;
+                default: ADD(crc1);
+                break;
             }
+
+            switch (crc2){
+                case 0x7d: ADD(0x7f);ADD(0x00);break;
+                case 0x7e: ADD(0x7f);ADD(0x01);break;
+                case 0x7f: ADD(0x7f);ADD(0x02);break;
+                default: ADD(crc2);
+                break;
+            }
+
             ADD(0x7e);
+
             write(fd,head_ptr,my_buffer_ptr - head_ptr);
             RCLCPP_INFO(this->get_logger(),"succeed.fd is %d",fd);
             delete(now_msg);
