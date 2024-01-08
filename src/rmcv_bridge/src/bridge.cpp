@@ -72,7 +72,7 @@ namespace rmcv_bridge {
             tcsetattr(fd, TCSANOW, &newtio);
 
             //设置为非阻塞模式，这个在读串口的时候会用到
-            fcntl(fd, F_SETFL, O_NONBLOCK);
+            //fcntl(fd, F_SETFL, O_NONBLOCK);
             return fd;
         }
 
@@ -150,10 +150,10 @@ namespace rmcv_bridge {
                         if(my_write_ptr[type] == nullptr) {RCLCPP_ERROR(this->get_logger(),"fail this time!!"); state = 0; break;}
                         size_t now_len = my_write_ptr[type]-read_msg_array[type];
                         if(now_len <= 2) RCLCPP_INFO(this->get_logger(),"ERROR_buffer");
-                        uint16_t crccode_16 = crc_16(read_msg_array[type], now_len - 2);
+                        uint16_t crccode_16 = crc_16_with_id(read_msg_array[type], now_len - 2,(unsigned char)type);
                         my_write_ptr[type] = nullptr;
                         
-                        uint16_t crccode_16_rec = read_msg_array[type][now_len-1] + read_msg_array[type][now_len-2]*256;
+                        uint16_t crccode_16_rec = read_msg_array[type][now_len-1]*256 + read_msg_array[type][now_len-2];
                         
                         RCLCPP_INFO(this->get_logger(),"%s",read_msg_array[type]);
 

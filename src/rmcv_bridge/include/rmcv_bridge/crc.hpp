@@ -10,14 +10,16 @@
 #include <sys/stat.h>   /*定义了一些返回值的结构，没看明白*/
 #include <errno.h>      /*错误号定义*/
 
+#include "rclcpp/rclcpp.hpp"
+
 #define FALSE  -1
 
 #define TRUE   0
 
 
 namespace rmcv_bridge{
-    #define         CRC_POLY_16             0xA001
-    #define         CRC_START_16            0x0000
+    #define         CRC_POLY_16             0x8408
+    #define         CRC_START_16            0xFFFF
     static bool             crc_tab16_init          = false;
     static uint16_t         crc_tab16[256];
 
@@ -35,6 +37,7 @@ namespace rmcv_bridge{
                 c = c >> 1;
             }
             crc_tab16[i] = crc;
+            // RCLCPP_INFO(rclcpp::get_logger("crc"),"%d ???? %d",crc,i);
         }
         crc_tab16_init = true;
     }
@@ -50,6 +53,29 @@ namespace rmcv_bridge{
         if ( ptr != NULL ) for (a=0; a<num_bytes; a++) {
             crc = (crc >> 8) ^ crc_tab16[ (crc ^ (uint16_t) *ptr++) & 0x00FF ];
         }
+        return crc;
+    }
+
+
+    uint16_t crc_16_with_id(const unsigned char *input_str, size_t num_bytes, const unsigned char c){
+        uint16_t crc;
+        const unsigned char *ptr;
+        size_t a;
+        if (!crc_tab16_init ) init_crc16_tab();
+        crc = CRC_START_16;
+        ptr = input_str;
+        
+        // RCLCPP_INFO(rclcpp::get_logger("crc"),"%d %d",crc,c);
+
+
+        crc = (crc >> 8) ^ crc_tab16[ (crc ^ (uint16_t) c) & 0x00FF ];
+
+        if ( ptr != NULL ) for (a=0; a<num_bytes; a++) {
+            // RCLCPP_INFO(rclcpp::get_logger("crc"),"%d %d",crc,*ptr);
+            crc = (crc >> 8) ^ crc_tab16[ (crc ^ (uint16_t) *ptr++) & 0x00FF ];
+        }
+
+
         return crc;
     }
 }
