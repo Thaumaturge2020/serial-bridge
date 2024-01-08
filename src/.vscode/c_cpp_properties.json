@@ -1,0 +1,24 @@
+{
+  "configurations": [
+    {
+      "browse": {
+        "databaseFilename": "${default}",
+        "limitSymbolsToIncludedHeaders": false
+      },
+      "includePath": [
+        "/home/red-sakura/GIT/serial-bridge/install/serial_msg/include/**",
+        "/home/red-sakura/ws_livox/install/livox_ros_driver2/include/**",
+        "/opt/ros/humble/include/**",
+        "/home/red-sakura/GIT/serial-bridge/src/rmcv_bridge/include/**",
+        "/home/red-sakura/GIT/serial-bridge/src/serial_location/include/**",
+        "/usr/include/**"
+      ],
+      "name": "ROS",
+      "intelliSenseMode": "gcc-x64",
+      "compilerPath": "/usr/bin/gcc",
+      "cStandard": "gnu11",
+      "cppStandard": "c++14"
+    }
+  ],
+  "version": 4
+}
