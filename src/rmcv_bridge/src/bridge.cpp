@@ -3,6 +3,7 @@
 #include "serial_msg/msg/uint8_array.hpp"
 #include "rmcv_bridge/crc.hpp"
 #include "std_msgs/msg/string.hpp"
+#include "geometry_msgs/msg/wrench_stamped.hpp"
 
 
 using namespace std::chrono_literals;
@@ -29,6 +30,10 @@ namespace rmcv_bridge {
     public :
         std::vector<rclcpp::Publisher<serial_msg::msg::Uint8Array>::SharedPtr> serial_read_list;
         std::vector<rclcpp::Subscription<serial_msg::msg::Uint8Array>::SharedPtr> serial_write_list;
+        rclcpp::Subscription<geometry_msgs::msg::WrenchStamped>::SharedPtr serial_geometry_suber;
+
+        static constexpr int msg_sub_num = 1;
+        static constexpr int msg_pub_num = 1;
         static constexpr int msg_num = 256;
         int fd;
         static constexpr int FULL_LEN = 2048;
@@ -93,13 +98,19 @@ namespace rmcv_bridge {
             std::string str;
             RCLCPP_INFO(this->get_logger(),"test_node_launched");
             using namespace std::placeholders;
-            for (int i = 0; i < msg_num; ++i) {
+            /*for (int i = 0; i < msg_sub_num; ++i) {
                 ss.clear(); ss << "/subscription/message";  ss << i;    ss >> str;
                 std::function<void(serial_msg::msg::Uint8Array::ConstSharedPtr)> binded =
                         std::bind(&MinimalSerialBridge::behaviour_subscribe, this, _1, i);
-                serial_write_list.push_back(
-                        this->create_subscription<serial_msg::msg::Uint8Array>(
-                                str, 10, binded));
+                serial_write_list.push_back(this->create_subscription<serial_msg::msg::Uint8Array>(str, 10, binded));
+            }*/
+
+            ss.clear(); ss << "/subscription/message0"; ss >> str;
+            std::function<void(geometry_msgs::msg::WrenchStamped::ConstSharedPtr)> binded = 
+                        std::bind(&MinimalSerialBridge::velocity_subscribe, this, _1);
+            serial_geometry_suber = this->create_subscription<geometry_msgs::msg::WrenchStamped>("/cmd_vel", 10, binded);
+
+            for (int i = 0; i < msg_pub_num; ++i){
                 ss.clear(); ss << "/publisher/message";     ss << i;    ss >> str;
                 serial_read_list.push_back(this->create_publisher<serial_msg::msg::Uint8Array>(str, 10));
             }
@@ -108,6 +119,23 @@ namespace rmcv_bridge {
             
             fd = openUart();
             memset(my_setup,0,sizeof(my_setup));
+        }
+        
+        void velocity_subscribe(geometry_msgs::msg::WrenchStamped::ConstSharedPtr msg){
+            double  velo_x = msg->wrench.force.x,
+                    velo_y = msg->wrench.force.y,
+                    yaw_msg = msg->wrench.torque.z;
+            
+            uint8_t vel_msg[24] = {0};
+            memcpy(vel_msg,&velo_x,sizeof(double));
+            memcpy(vel_msg+8,&velo_y,sizeof(double));
+            memcpy(vel_msg+16,&yaw_msg,sizeof(double));
+            serial_msg::msg::Uint8Array vel_msg_array;
+            vel_msg_array.data.resize(24);
+            memcpy(vel_msg_array.data.data(),vel_msg,sizeof(uint8_t)*24);
+            behaviour_subscribe(std::make_shared<serial_msg::msg::Uint8Array>(vel_msg_array),0x00);
+            RCLCPP_INFO(this->get_logger(),"velocity published %s",vel_msg_array.data.data());
+            return;
         }
 
         void behaviour_publish() {

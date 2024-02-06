@@ -14,6 +14,8 @@ find_package(rclcpp_action REQUIRED)
 find_package(rclcpp_components REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(serial_msg REQUIRED)
+find_package(geometry_msgs REQUIRED)
+
 include_directories("/usr/include/eigen3")
 # uncomment the following section in order to fill in
 # further dependencies manually.
@@ -39,7 +41,7 @@ target_include_directories(rmcv_bridge PRIVATE
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>)
 
-ament_target_dependencies(rmcv_bridge rclcpp rclcpp_action rclcpp_components serial_msg std_msgs)
+ament_target_dependencies(rmcv_bridge rclcpp rclcpp_action rclcpp_components serial_msg std_msgs geometry_msgs)
 ament_package()
 
 rclcpp_components_register_node(rmcv_bridge PLUGIN "rmcv_bridge::MinimalSerialBridge" EXECUTABLE bridge)
