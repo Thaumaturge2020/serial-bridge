@@ -17,7 +17,9 @@ class MinimalPublisher(Node):
     def publish_serial_ports_info(self):
         ports = serial.tools.list_ports.comports()
         for port in ports:
-            if port.hwid == "USB VID:PID=1366:0105 SER=000020723308 LOCATION=1-9.1:1.0":
+            # if port.hwid == "USB VID:PID=1366:0105 SER=000020723308 LOCATION=1-9.1:1.0":
+            if port.hwid.find("USB")==0 and port.hwid.find("VID")>0 and port.hwid.find("PID")>0 and port.hwid.find("SER")>0 and port.hwid.find("LOCATION")>0:
+                print("SER ID:", port.hwid)
                 print("Port:", port.device)
                 print("Description:", port.description)
                 print("HWID:", port.hwid)
