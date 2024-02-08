@@ -260,7 +260,7 @@ namespace rmcv_bridge {
             memcpy(now_msg+1, msg->data.data(), len);
             
             len += 1;//for modify the length;
-            std::cout << rmcv_bridge::crc_tab16[1] << "---------------------------------crc16[1]\n\n" << std::endl;
+            // std::cout << rmcv_bridge::crc_tab16[1] << "---------------------------------crc16[1]\n\n" << std::endl;
             uint16_t crccode_16 = crc_16(now_msg, len);
             uint8_t *p_str = now_msg;
             uint8_t *my_buffer_ptr = write_msg_array;   
