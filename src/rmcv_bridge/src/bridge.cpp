@@ -5,7 +5,8 @@
 #include "std_msgs/msg/string.hpp"
 #include "geometry_msgs/msg/wrench_stamped.hpp"
 
-
+using std::cout;
+using std::endl;
 using namespace std::chrono_literals;
 
 /*
@@ -52,16 +53,16 @@ namespace rmcv_bridge {
 
         int openUart() {
             if(serial_port==""){
-                RCLCPP_INFO(this->get_logger(),"can't open this.");
-                return -1;
+            RCLCPP_INFO(this->get_logger(),"can't open this.");
+            return -1;
             }
             RCLCPP_INFO(this->get_logger(),"my_str is %s",serial_port.c_str());
             int fd = open(serial_port.c_str(), O_RDWR);
             RCLCPP_INFO(this->get_logger(),"my_fd is %d",fd);
             if (fd < 0) {
-                RCLCPP_ERROR(this->get_logger(), "can't open %s", serial_port.c_str());
-                //rclcpp::shutdown();
-                return -1;
+            RCLCPP_ERROR(this->get_logger(), "can't open %s", serial_port.c_str());
+            //rclcpp::shutdown();
+            return -1;
             }
             termios oldtio = {0};
             termios newtio = {0};
@@ -77,14 +78,18 @@ namespace rmcv_bridge {
             tcsetattr(fd, TCSANOW, &newtio);
 
             //设置为非阻塞模式，这个在读串口的时候会用到
-            //fcntl(fd, F_SETFL, O_NONBLOCK);
+            fcntl(fd, F_SETFL, O_NONBLOCK);
             return fd;
         }
 
         void SerialPort_Subscription(const std_msgs::msg::String msg){
-            RCLCPP_INFO(this->get_logger(),"received....");
+            RCLCPP_INFO(this->get_logger(), "received....");
             serial_port = msg.data;
-            RCLCPP_INFO(this->get_logger(),msg.data.c_str());
+            // if (fd < 0) {
+            //     fd = openUart();
+            //     return;
+            // }
+            RCLCPP_INFO(this->get_logger(), msg.data.c_str());
             return;
         }
 
@@ -106,9 +111,11 @@ namespace rmcv_bridge {
             }*/
 
             ss.clear(); ss << "/subscription/message0"; ss >> str;
-            std::function<void(geometry_msgs::msg::WrenchStamped::ConstSharedPtr)> binded = 
-                        std::bind(&MinimalSerialBridge::velocity_subscribe, this, _1);
-            serial_geometry_suber = this->create_subscription<geometry_msgs::msg::WrenchStamped>("/cmd_vel", 10, binded);
+            // std::function<void(geometry_msgs::msg::WrenchStamped::ConstSharedPtr)> binded =
+            //             std::bind(&MinimalSerialBridge::velocity_subscribe, this, _1);
+            cout << "sub!!!!!!" << endl;
+            serial_geometry_suber = this->create_subscription<geometry_msgs::msg::WrenchStamped>(
+                "/cmd_vel", 10, std::bind(&MinimalSerialBridge::velocity_subscribe, this, _1));
 
             for (int i = 0; i < msg_pub_num; ++i){
                 ss.clear(); ss << "/publisher/message";     ss << i;    ss >> str;
@@ -119,13 +126,17 @@ namespace rmcv_bridge {
             
             fd = openUart();
             memset(my_setup,0,sizeof(my_setup));
+            cout << "construct!!!!" << endl;
         }
-        
-        void velocity_subscribe(geometry_msgs::msg::WrenchStamped::ConstSharedPtr msg){
-            double  velo_x = msg->wrench.force.x,
-                    velo_y = msg->wrench.force.y,
-                    yaw_msg = msg->wrench.torque.z;
-            
+
+        void velocity_subscribe(geometry_msgs::msg::WrenchStamped::UniquePtr msg){
+            cout << "success!!!!" << endl;
+            double velo_x = msg->wrench.force.x,  //
+                velo_y = msg->wrench.force.y,     //
+                yaw_msg = msg->wrench.torque.z;
+
+            cout << "velo_x  " << velo_x << "velo_y  " << velo_y << "yaw_msg  " << yaw_msg << endl;
+
             uint8_t vel_msg[24] = {0};
             memcpy(vel_msg,&velo_x,sizeof(double));
             memcpy(vel_msg+8,&velo_y,sizeof(double));
@@ -145,7 +156,7 @@ namespace rmcv_bridge {
             }
             long int ret = read(fd, my_temp_buffer, FULL_LEN);
             uint8_t *p_str = my_temp_buffer;
-            RCLCPP_INFO(this->get_logger(),"my_ret:%d",ret);
+            // RCLCPP_INFO(this->get_logger(),"my_ret:%d",ret);
             if(ret < 0) return;
             RCLCPP_INFO(this->get_logger(),"%ld",ret);
             // RCLCPP_INFO(this->get_logger(),"%s",my_temp_buffer);
@@ -238,17 +249,21 @@ namespace rmcv_bridge {
             }
 
         void behaviour_subscribe(serial_msg::msg::Uint8Array::ConstSharedPtr msg, int type) {
+            if(fd < 0){
+                fd = openUart();
+                return;
+            }
             RCLCPP_INFO(this->get_logger(),"this can be dealed by me...");
             int len = (int)sizeof(uint8_t) * msg->data.size();
-            uint8_t* now_msg = new uint8_t[len+len+5];
+            uint8_t* now_msg = new uint8_t[2*len+5];
             now_msg[0] = type;
             memcpy(now_msg+1, msg->data.data(), len);
             
             len += 1;//for modify the length;
-
+            std::cout << rmcv_bridge::crc_tab16[1] << "---------------------------------crc16[1]\n\n" << std::endl;
             uint16_t crccode_16 = crc_16(now_msg, len);
             uint8_t *p_str = now_msg;
-            uint8_t *my_buffer_ptr = write_msg_array;
+            uint8_t *my_buffer_ptr = write_msg_array;   
             const uint8_t *head_ptr = write_msg_array;
             
             //0:normal
@@ -271,13 +286,6 @@ namespace rmcv_bridge {
             uint8_t crc1 = (crccode_16 >> 8);
             uint8_t crc2 = (crccode_16 & 255);
 
-            switch (crc1){
-                case 0x7d: ADD(0x7f);ADD(0x00);break;
-                case 0x7e: ADD(0x7f);ADD(0x01);break;
-                case 0x7f: ADD(0x7f);ADD(0x02);break;
-                default: ADD(crc1);
-                break;
-            }
 
             switch (crc2){
                 case 0x7d: ADD(0x7f);ADD(0x00);break;
@@ -287,10 +295,17 @@ namespace rmcv_bridge {
                 break;
             }
 
+            switch (crc1){
+                case 0x7d: ADD(0x7f);ADD(0x00);break;
+                case 0x7e: ADD(0x7f);ADD(0x01);break;
+                case 0x7f: ADD(0x7f);ADD(0x02);break;
+                default: ADD(crc1);
+                break;
+            }
             ADD(0x7e);
 
             write(fd,head_ptr,my_buffer_ptr - head_ptr);
-            RCLCPP_INFO(this->get_logger(),"succeed.fd is %d",fd);
+            RCLCPP_INFO(this->get_logger(),"succeed.fd is %d ",fd);
             delete(now_msg);
             return;
         }
